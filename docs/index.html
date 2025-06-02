@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GitHub Dorker - Bug Bounty Edition</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center p-6 font-sans">
+
+  <h1 class="text-4xl font-bold mb-6 text-center">🕵️ GitHub Dorker - Bug Bounty Edition</h1>
+
+  <div class="w-full max-w-xl flex flex-col gap-3 mb-6">
+    <input
+      id="target"
+      type="text"
+      placeholder="Enter target domain or subdomain (e.g. example.com)"
+      class="w-full p-3 rounded-md text-black"
+      aria-label="Target domain or subdomain"
+      autocomplete="off"
+    />
+    <div class="flex gap-2">
+      <button
+        id="generateBtn"
+        onclick="generateDorks()"
+        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-md transition"
+        aria-live="polite"
+      >
+        Generate GitHub Dorks
+      </button>
+      <button
+        onclick="clearInput()"
+        class="bg-gray-600 hover:bg-gray-700 text-white font-semibold px-4 py-2 rounded-md"
+        aria-label="Clear input"
+      >
+        Clear
+      </button>
+      <button
+        id="resetProgressBtn"
+        onclick="resetProgress()"
+        class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-md"
+        disabled
+        aria-label="Reset progress"
+      >
+        Reset Progress
+      </button>
+    </div>
+  </div>
+
+  <p id="count" class="mb-4 text-gray-400"></p>
+
+  <div id="results" class="w-full max-w-xl space-y-3"></div>
+
+  <button
+    id="copyAllBtn"
+    onclick="copyAll()"
+    class="mt-8 bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md text-white disabled:opacity-50"
+    disabled
+  >
+    📋 Copy Selected
+  </button>
+
+  <!-- Toast container -->
+  <div id="toast" class="fixed bottom-6 right-6 bg-green-500 text-white px-4 py-2 rounded shadow opacity-0 pointer-events-none transition-opacity"></div>
+
+  <script>
+    const dorkTemplates = [
+      "{target} filename:.env",
+      "{target} filename:.git-credentials",
+      "{target} filename:id_rsa",
+      "{target} filename:credentials AWS",
+      "{target} extension:json api_key",
+      "{target} extension:yaml password",
+      "{target} extension:env DB_PASSWORD",
+      "{target} extension:sql password",
+      "{target} extension:log password",
+      "{target} extension:ini smtp",
+      "{target} extension:xml password",
+      "{target} filename:config.php db_password",
+      "{target} filename:wp-config.php",
+      "{target} filename:docker-compose.yml",
+      "{target} filename:.npmrc _auth",
+      "{target} filename:.bash_history password",
+      "{target} filename:.ssh/config",
+      "{target} filename:database.yml password",
+      "{target} extension:py API_KEY",
+      "{target} extension:rb password",
+      "{target} extension:log AWS_SECRET",
+      "{target} extension:json auth_token",
+      "{target} extension:xml api_key",
+      "{target} filename:secrets.yml",
+      "{target} filename:firebase.json",
+      "{target} filename:config.js jwt",
+      "{target} extension:js access_token",
+      "{target} extension:txt site_password",
+      "{target} extension:env mailgun",
+      "{target} filename:.bashrc AWS_SECRET",
+      "{target} filename:.zshrc API_KEY",
+      "{target} extension:json google_api_key",
+      "{target} extension:log database",
+      "{target} extension:ini password",
+      "{target} filename:server.key",
+      "{target} filename:private.key"
+    ];
+
+    const results = document.getElementById("results");
+    const countDisplay = document.getElementById("count");
+    const copyAllBtn = document.getElementById("copyAllBtn");
+    const generateBtn = document.getElementById("generateBtn");
+    const resetProgressBtn = document.getElementById("resetProgressBtn");
+    const toast = document.getElementById("toast");
+    const targetInput = document.getElementById("target");
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.remove("opacity-0", "pointer-events-none");
+      setTimeout(() => {
+        toast.classList.add("opacity-0", "pointer-events-none");
+      }, 2000);
+    }
+
+    function saveProgress(target, checkedDorks) {
+      if (!target) return;
+      localStorage.setItem(`dorkProgress_${target}`, JSON.stringify(checkedDorks));
+      resetProgressBtn.disabled = false;
+    }
+
+    function loadProgress(target) {
+      if (!target) return [];
+      const data = localStorage.getItem(`dorkProgress_${target}`);
+      if (!data) return [];
+      try {
+        return JSON.parse(data);
+      } catch {
+        return [];
+      }
+    }
+
+    function updateCopyButtonState() {
+      const checkboxes = results.querySelectorAll('input[type="checkbox"]');
+      const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+      copyAllBtn.disabled = !anyChecked;
+    }
+
+    function onCheckboxChange() {
+      const target = targetInput.value.trim();
+      if (!target) return;
+      const checkboxes = results.querySelectorAll('input[type="checkbox"]');
+      const checkedDorks = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.dataset.dork);
+      saveProgress(target, checkedDorks);
+      updateCopyButtonState();
+    }
+
+    function generateDorks() {
+      const target = targetInput.value.trim();
+      results.innerHTML = "";
+      countDisplay.textContent = "";
+      copyAllBtn.disabled = true;
+      resetProgressBtn.disabled = true;
+
+      if (!target) {
+        alert("Please enter a domain or subdomain.");
+        return;
+      }
+
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Generating...";
+
+      setTimeout(() => {
+        const dorks = dorkTemplates.map(t => t.replaceAll("{target}", target));
+        const savedChecked = loadProgress(target);
+
+        dorks.forEach(dork => {
+          const isChecked = savedChecked.includes(dork);
+          const link = `https://github.com/search?q=${encodeURIComponent(dork)}`;
+
+          const div = document.createElement("div");
+          div.className = "bg-gray-800 p-3 rounded-lg shadow flex justify-between items-center";
+          div.innerHTML = `
+            <label class="flex items-center space-x-3 w-full cursor-pointer">
+              <input
+                type="checkbox"
+                data-dork="${dork}"
+                ${isChecked ? "checked" : ""}
+                class="form-checkbox h-5 w-5 text-blue-600"
+                aria-label="Select dork"
+              />
+              <a href="${link}" target="_blank" rel="noopener noreferrer" class="hover:underline text-blue-400 break-all flex-1">
+                <code>${dork}</code>
+              </a>
+              <button
+                onclick="copyOne(\`${dork}\`)"
+                class="ml-2 text-sm bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition"
+                aria-label="Copy dork"
+                type="button"
+              >Copy</button>
+            </label>
+          `;
+          results.appendChild(div);
+
+          // Add event listener to checkbox
+          div.querySelector('input[type="checkbox"]').addEventListener('change', onCheckboxChange);
+        });
+
+        countDisplay.textContent = `Generated ${dorks.length} GitHub dorks for target: ${target}`;
+        copyAllBtn.disabled = !savedChecked.length;
+        resetProgressBtn.disabled = false;
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate GitHub Dorks";
+      }, 300);
+    }
+
+    function copyOne(text) {
+      navigator.clipboard.writeText(text)
+        .then(() => showToast(`Copied: ${text}`))
+        .catch(() => alert("Failed to copy to clipboard"));
+    }
+
+    function copyAll() {
+      const checkboxes = results.querySelectorAll('input[type="checkbox"]');
+      const selectedDorks = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.dataset.dork);
+      if (selectedDorks.length === 0) {
+        alert("Please select at least one dork to copy.");
+        return;
+      }
+      navigator.clipboard.writeText(selectedDorks.join("\n"))
+        .then(() => showToast("Selected dorks copied to clipboard."))
+        .catch(() => alert("Failed to copy to clipboard"));
+    }
+
+    function clearInput() {
+      targetInput.value = "";
+      results.innerHTML = "";
+      countDisplay.textContent = "";
+      copyAllBtn.disabled = true;
+      resetProgressBtn.disabled = true;
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate GitHub Dorks";
+    }
+
+    function resetProgress() {
+      const target = targetInput.value.trim();
+      if (!target) return;
+
+      if (!confirm("Are you sure you want to reset your progress for this target?")) return;
+
+      localStorage.removeItem(`dorkProgress_${target}`);
+
+      // Uncheck all checkboxes
+      const checkboxes = results.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(cb => cb.checked = false);
+
+      copyAllBtn.disabled = true;
+      resetProgressBtn.disabled = true;
+
+      showToast("Progress reset.");
+    }
+
+    // Optional: Save progress if user changes target input manually after generation
+    targetInput.addEventListener('input', () => {
+      resetProgressBtn.disabled = true;
+      copyAllBtn.disabled = true;
+      results.innerHTML = "";
+      countDisplay.textContent = "";
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate GitHub Dorks";
+    });
+  </script>
+
+</body>
+</html>
